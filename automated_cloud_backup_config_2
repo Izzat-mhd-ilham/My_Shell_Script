@@ -1,0 +1,346 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : add new cloud client in cloud backup policy
+# Filename : add_client_policy.sh
+# Date     : 20 Jan 2019
+# Writer   : Izzat Bin Mhd Ilham
+#********************************************************************************
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin:/usr/openv/volmgr/bin
+> /tmp/backup_config_success.txt
+> /tmp/redundant_backup_config.txt
+> /tmp/redundant_backup_config2.txt
+> /tmp/sql_backup_config_success.txt
+> /tmp/ora_backup_config_success.txt
+
+MAIL_ADDR=cbjbackupteam@dhl.com
+LOG_DIR=/cloud_hole/bckp_scripts/logs/
+SUMMARY="$LOG_DIR"CL_bckp_`date +%Y%m%d-%H%M`_summary.txt
+POLICY_NAME_MSSQL_FULL_DB=SQL-CLOUD-FULL-BKP
+POLICY_NAME_MSSQL_INCR_DB=SQL-CLOUD-INCR-BKP
+POLICY_NAME_MSSQL_LOG=SQL-CLOUD-LOG-BKP
+POLICY_NAME_TPM_MSSQL_FULL_DB=TPM-SQL-CLOUD-FULL-BKP
+POLICY_NAME_TPM_MSSQL_INCR_DB=TPM-SQL-CLOUD-INCR-BKP
+POLICY_NAME_TPM_MSSQL_LOG=TPM-SQL-CLOUD-LOG-BKP
+POLICY_NAME_ORA_DB=ORA-CLOUD-ARC
+POLICY_NAME_ORA_LOG=ORA-CLOUD-LOGS
+POLICY_NAME_TPM_ORA_DB=TPM-ORA-CLOUD-ARC
+POLICY_NAME_TPM_ORA_LOG=TPM-ORA-CLOUD-LOGS
+POLICY_NAME_LINUX=FS-CLOUD2-BKP
+POLICY_NAME_WINDOWS=WIN-CLOUD1-BKP
+POLICY_NAME_TPM_LINUX=TPM-FS-CLOUD1-BKP
+POLICY_NAME_TPM_WINDOWS=TPM-WIN-CLOUD1-BKP
+TODAY=`date +%m/%d/%Y`
+function summary
+{
+                        printf "\t \n"                                                   >> $SUMMARY
+                        printf "\t +----------------------------------------------------------+ \n" >> $SUMMARY
+                        printf "\t |     CLOUD BACKUP SUMMARY - `date +%Y%m%d-%H%M`    | \n" >> $SUMMARY
+                        printf "\t +----------------------------------------------------------+ \n" >> $SUMMARY
+
+
+}
+
+function summary1
+{
+
+                [ -s /tmp/ready4backupconfig.txt ]
+                if [ $? = 0 ]; then
+                    for CLIENT in `cat /tmp/ready4backupconfig.txt`
+                        do
+                        server=`echo $CLIENT |cut -c 1-7`
+                        if [[ $server == mykulws ]];
+                             then
+                                bpplclients $POLICY_NAME_WINDOWS | grep $CLIENT | awk '{print $3}' >> /tmp/backup_config_success.txt
+
+                        elif [[ $server == mykulls ]];
+                             then
+                                bpplclients $POLICY_NAME_LINUX | grep $CLIENT | awk '{print $3}' >> /tmp/backup_config_success.txt
+
+                        elif [[ $server == mytpmws ]];
+                             then
+                                bpplclients $POLICY_NAME_TPM_WINDOWS | grep $CLIENT | awk '{print $3}' >> /tmp/backup_config_success.txt
+
+                             else
+                                bpplclients $POLICY_NAME_TPM_LINUX | grep $CLIENT | awk '{print $3}' >> /tmp/backup_config_success.txt
+                        fi
+                        done
+
+                [ -s /tmp/cloud_mssql_list_final.txt ]
+                if [ $? = 0 ]; then
+                        for CLIENT in `cat /tmp/cloud_mssql_list_final.txt`
+                        do
+                           bpplclients $POLICY_NAME_MSSQL_FULL_DB | grep $CLIENT | awk '{print $3}' >> /tmp/sql_backup_config_success.txt
+                        done
+                fi
+
+               [ -s /tmp/cloud_ora_list_final.txt ]
+                if [ $? = 0 ]; then
+                        for CLIENT in `cat /tmp/cloud_ora_list_final.txt`
+                        do
+                           bpplclients $POLICY_NAME_ORA_DB | grep $CLIENT | awk '{print $3}' >> /tmp/ora_backup_config_success.txt
+                        done
+                fi
+
+
+                        printf "\t Verified, backup configuration is completed \n"        >> $SUMMARY
+                        printf "\t \n"
+                                for i in `cat /tmp/backup_config_success.txt`
+                do
+                echo -e "\t\t\t  $i"
+                done                                                          >> $SUMMARY
+
+                        printf "\t \n"                                                    >> $SUMMARY
+                        printf "\t \n"                                                     >> $SUMMARY
+
+               [ -s /tmp/sql_backup_config_success.txt ]
+                if [ $? = 0 ]; then
+                        printf "\t Verified, MSSQL DB backup configuration is completed \n"        >> $SUMMARY
+                        printf "\t \n"
+
+                        for i in `cat /tmp/sql_backup_config_success.txt`
+                        do
+                          echo -e "\t\t\t  $i"
+                        done                                                          >> $SUMMARY
+
+                        > /tmp/cloud_mssql_list_final.txt
+
+                fi
+
+                [ -s /tmp/ora_backup_config_success.txt ]
+                if [ $? = 0 ]; then
+                        printf "\t Verified, ORACLE DB backup configuration is completed \n"        >> $SUMMARY
+                        printf "\t \n"
+
+                        for i in `cat /tmp/ora_backup_config_success.txt`
+                        do
+                          echo -e "\t\t\t  $i"
+                        done                                                          >> $SUMMARY
+
+                        > /tmp/cloud_ora_list_final.txt
+
+
+                fi
+
+
+        fi
+
+}
+function summary2
+{
+printf "\t \n"
+printf "\t \n"
+[ -s /tmp/not_legit_clients.txt ]
+                        if [ $? = 0 ]; then
+                                printf "\t \n" >> $SUMMARY
+                                printf "\t Please forward issue below to Infra (infra.delivery.mng.cbj@dhl.com) & Cloud Team (ITSPrivate.Cloud@dhl.com) for their action\n"  >> $SUMMARY
+                                printf "\t ====================================================\n"  >> $SUMMARY
+                                printf "\t \n"
+                        fi
+
+[ -s /tmp/ping_ko.txt ]
+                        if [ $? = 0 ]; then
+                                printf "\t Unable to ping hostname, servers are not ready \n" >> $SUMMARY
+                                printf "\t or the name of the hostname are not valid \n"      >> $SUMMARY
+                                for a in `cat /tmp/ping_ko.txt`
+                do
+                echo -e "\t\t\t$a"
+                done                                                          >> $SUMMARY
+                                #cat /tmp/ping_ko.txt
+                                printf "\t \n"                                               >> $SUMMARY
+                        fi
+
+[ -s /tmp/dns_ko.txt ]
+                        if [ $? = 0 ]; then
+                                printf "\t No BARN IP allocation been made \n"    >> $SUMMARY
+                                for b in `cat /tmp/dns_ko.txt`
+                do
+                echo -e "\t\t\t$b"
+                done                                                  >> $SUMMARY
+                                #cat /tmp/dns_ko.txt
+                                printf "\t \n"                                      >> $SUMMARY
+                        fi
+
+[ -s /tmp/ping_barn_ko.txt ]
+                        if [ $? = 0 ]; then
+                                printf "\t BARN IP is not pingable \n"                >> $SUMMARY
+                                for c in `cat /tmp/ping_barn_ko.txt`
+                do
+                echo -e "\t\t\t$c"
+                done                                                   >> $SUMMARY
+                                printf "\t \n"                                         >> $SUMMARY
+                        fi
+
+[ -s /tmp/telnet_ko.txt ]
+                        if [ $? = 0 ]; then
+                                printf "\t Cannnot get through the netbackup port, \n"   >> $SUMMARY
+                                printf "\t Could be the firewall issue \n"                >> $SUMMARY
+                                for d in `cat /tmp/telnet_ko.txt`
+                do
+                echo -e "\t\t\t$d"
+                done                                                       >> $SUMMARY
+                        #       cat /tmp/telnet_ko.txt
+                                printf "\t \n"                                              >> $SUMMARY
+                        fi
+
+[ -s /tmp/socket_ko.txt ]
+                        if [ $? = 0 ]; then
+                                printf "\t Unable to connect to the socket \n"            >> $SUMMARY
+                                for e in `cat /tmp/socket_ko.txt`
+                do
+                echo -e "\t\t\t$e"
+                done                                                      >> $SUMMARY
+                        #       cat /tmp/socket_ko.txt
+                                printf "\t \n"                                            >> $SUMMARY
+                        fi
+
+[ -s /tmp/CA_cert_ko.txt ]
+                        if [ $? = 0 ]; then
+                                printf "\t CA Certificate issue \n"            >> $SUMMARY
+                                for f in `cat /tmp/CA_cert_ko.txt`
+                do
+                echo -e "\t\t\t$f"
+                done                                                      >> $SUMMARY
+                        #       cat /tmp/CA_cert_ko.txt
+                                printf "\t \n"                                            >> $SUMMARY
+                        fi
+
+}
+function Populate_MediaServer_WIN
+{
+WIN_first_server=`cat /opt/VRTSnbu/scripts/win_active_media_servers.txt | sed '3!d'`
+WIN_last_server=`cat /opt/VRTSnbu/scripts/win_active_media_servers.txt |tail -n1`
+WIN_MEDIA_SERVER=/tmp/win_nbu_media_server.txt
+echo Server = $WIN_first_server\\nServer > $WIN_MEDIA_SERVER
+        for win_media_server in $(cat /opt/VRTSnbu/scripts/win_active_media_servers.txt | tail --lines=+4 |head -n-1)
+                do
+                        echo = ""$win_media_server\\nServer >> $WIN_MEDIA_SERVER
+                done
+echo "" = $WIN_last_server >> $WIN_MEDIA_SERVER
+cat $WIN_MEDIA_SERVER | tr -d '\n' > /tmp/win_final_media_server.txt
+}
+
+function Populate_MediaServer_LINUX
+{
+
+LINUX_first_server=`cat /opt/VRTSnbu/scripts/linux_active_media_servers.txt | sed '3!d'`
+LINUX_last_server=`cat /opt/VRTSnbu/scripts/linux_active_media_servers.txt |tail -n1`
+LINUX_MEDIA_SERVER=/tmp/linux_nbu_media_server.txt
+
+echo Server = $LINUX_first_server\\nServer > $LINUX_MEDIA_SERVER
+        for linux_media_server in $(cat /opt/VRTSnbu/scripts/linux_active_media_servers.txt | tail --lines=+4 |head -n-1)
+                do
+                        echo = ""$linux_media_server\\nServer >> $LINUX_MEDIA_SERVER
+                done
+echo "" = $LINUX_last_server >> $LINUX_MEDIA_SERVER
+cat $LINUX_MEDIA_SERVER | tr -d '\n' > /tmp/linux_final_media_server.txt
+echo "BPCD_WHITELIST_PATH = /tmp\nBPCD_WHITELIST_PATH = /var\nBPCD_WHITELIST_PATH = /usr\nBPCD_WHITELIST_PATH = /opt\nDB_SCRIPT_PATH = /opt/openv/" > /tmp/whitelist.txt
+}
+
+Populate_MediaServer_WIN
+Populate_MediaServer_LINUX
+
+        for CLIENT in `cat /tmp/ready4backupconfig.txt`
+                do
+                  server=`echo $CLIENT |cut -c 1-7`
+                if [[ $server == mykulws ]];
+                  then
+                     bpplclients $POLICY_NAME_WINDOWS -M cbjnbu2019-b -add $CLIENT Windows-x64 Windows2008
+                     echo "CLIENT_NAME = $CLIENT" | bpsetconfig -h $CLIENT
+                     echo "Browser = $CLIENT" | bpsetconfig -h $CLIENT
+                     echo "REQUIRED_INTERFACE = CLIENT" | bpsetconfig -h $CLIENT
+                     bpclient -M cbjnbu2019-b -client $CLIENT -add
+                     bpclient -update -client $CLIENT -WOFB_enabled 1 -WOFB_FIM 1
+                     echo -e "`cat /tmp/win_final_media_server.txt | tr -d '\n'`" | bpsetconfig -h $CLIENT
+                     echo -e "CLIENT_READ_TIMEOUT = 3600" | bpsetconfig -h $CLIENT
+                     bpgetconfig -M $CLIENT | grep "^Exclude = " > /tmp/exclude_list.txt
+                     cat /opt/VRTSnbu/scripts/win_standard_exclude_list.txt >> /tmp/exclude_list.txt
+                     echo "INCLUDE = master.mdf INCLUDE = mastlog.ldf INCLUDE = mssqlsystemresource.mdf INCLUDE = mssqlsystemresource.ldf INCLUDE = model.mdf INCLUDE = modellog.ldf INCLUDE = msdbdata.mdf INCLUDE = msdblog.ldf" | sed 's/INCLUDE/\nINCLUDE/g' | tail -8 > /tmp/include_list.txt
+                     bpsetconfig -h $CLIENT /tmp/exclude_list.txt
+                     bpsetconfig -h $CLIENT /tmp/include_list.txt
+                     sleep 10
+                     bpbackup -i -p $POLICY_NAME_WINDOWS -s weekly_full -h $CLIENT
+
+                elif [[ $server == mykulls ]];
+                  then
+                     bpplclients $POLICY_NAME_LINUX -M cbjnbu2019-b -add $CLIENT Linux RedHat2.6.18
+                     echo "CLIENT_NAME = $CLIENT" | bpsetconfig -h $CLIENT
+                     echo -e "`cat /tmp/linux_final_media_server.txt | tr -d '\n'`" | bpsetconfig -h $CLIENT
+                     echo -e "`cat /tmp/whitelist.txt | tr -d '\n'`" | bpsetconfig -h $CLIENT
+                     sleep 10
+                     bpbackup -i -p $POLICY_NAME_LINUX -s weekly_full -h $CLIENT
+
+                elif [[ $server == mytpmws ]];
+                   then
+                     bpplclients $POLICY_NAME_TPM_WINDOWS -M cbjnbu2019-b -add $CLIENT Windows-x64 Windows2008
+                     echo "CLIENT_NAME = $CLIENT" | bpsetconfig -h $CLIENT
+                     echo "Browser = $CLIENT" | bpsetconfig -h $CLIENT
+                     echo "REQUIRED_INTERFACE = CLIENT" | bpsetconfig -h $CLIENT
+                     bpclient -M cbjnbu2019-b -client $CLIENT -add
+                     bpclient -update -client $CLIENT -WOFB_enabled 1 -WOFB_FIM 1
+                     echo -e "`cat /tmp/win_final_media_server.txt | tr -d '\n'`" | bpsetconfig -h $CLIENT
+                     echo -e "CLIENT_READ_TIMEOUT = 3600" | bpsetconfig -h $CLIENT
+                     bpgetconfig -M $CLIENT | grep "^Exclude = " > /tmp/exclude_list.txt
+                     cat /opt/VRTSnbu/scripts/win_standard_exclude_list.txt >> /tmp/exclude_list.txt
+                     echo "INCLUDE = master.mdf INCLUDE = mastlog.ldf INCLUDE = mssqlsystemresource.mdf INCLUDE = mssqlsystemresource.ldf INCLUDE = model.mdf INCLUDE = modellog.ldf INCLUDE = msdbdata.mdf INCLUDE = msdblog.ldf" | sed 's/INCLUDE/\nINCLUDE/g' | tail -8 > /tmp/include_list.txt
+                     bpsetconfig -h $CLIENT /tmp/exclude_list.txt
+                     bpsetconfig -h $CLIENT /tmp/include_list.txt
+                     sleep 10
+                     bpbackup -i -p $POLICY_NAME_TPM_WINDOWS -s weekly_full -h $CLIENT
+
+                else
+                     bpplclients $POLICY_NAME_TPM_LINUX -M cbjnbu2019-b -add $CLIENT Linux RedHat2.6.18
+                     echo "CLIENT_NAME = $CLIENT" | bpsetconfig -h $CLIENT
+                     echo -e "`cat /tmp/linux_final_media_server.txt | tr -d '\n'`" | bpsetconfig -h $CLIENT
+                     echo -e "`cat /tmp/whitelist.txt | tr -d '\n'`" | bpsetconfig -h $CLIENT
+                     sleep 10
+                     bpbackup -i -p $POLICY_NAME_TPM_LINUX -s weekly_full -h $CLIENT
+
+                fi
+                done
+
+[ -s /tmp/cloud_mssql_list_final.txt ]
+ if [ $? = 0 ]; then
+          for CLIENT in `cat /tmp/cloud_mssql_list_final.txt`
+                do
+                     server=`echo $CLIENT |cut -c 1-7`
+                     if [[ $server == mykulws ]]; then
+                         bpplclients $POLICY_NAME_MSSQL_FULL_DB -M cbjnbu2019-b -add $CLIENT Windows-x64 Windows2008
+                         bpplclients $POLICY_NAME_MSSQL_INCR_DB -M cbjnbu2019-b -add $CLIENT Windows-x64 Windows2008
+                         bpplclients $POLICY_NAME_MSSQL_LOG -M cbjnbu2019-b -add $CLIENT Windows-x64 Windows2008
+                         bpbackup -i -p $POLICY_NAME_MSSQL_FULL_DB -s FULL-DB -h $CLIENT
+
+                     else
+                         bpplclients $POLICY_NAME_TPM_MSSQL_FULL_DB -M cbjnbu2019-b -add $CLIENT Windows-x64 Windows2008
+                         bpplclients $POLICY_NAME_TPM_MSSQL_INCR_DB -M cbjnbu2019-b -add $CLIENT Windows-x64 Windows2008
+                         bpplclients $POLICY_NAME_TPM_MSSQL_LOG -M cbjnbu2019-b -add $CLIENT Windows-x64 Windows2008
+                         bpbackup -i -p $POLICY_NAME_TPM_MSSQL_FULL_DB -s FULL-DB -h $CLIENT
+
+                     fi
+                done
+ fi
+[ -s /tmp/cloud_ora_list_final.txt ]
+ if [ $? = 0 ]; then
+          for CLIENT in `cat /tmp/cloud_ora_list_final.txt`
+                do
+                     server=`echo $CLIENT |cut -c 1-7`
+                     if [[ $server == mykulls ]]; then
+                        bpplclients $POLICY_NAME_ORA_DB -M cbjnbu2019-b -add $CLIENT Linux RedHat2.6.18
+                        bpplclients $POLICY_NAME_ORA_LOG -M cbjnbu2019-b -add $CLIENT Linux RedHat2.6.18
+                        bpbackup -i -p $POLICY_NAME_ORA_DB -s FULL-ARC -h $CLIENT
+                     else
+                        bpplclients $POLICY_NAME_TPM_ORA_DB -M cbjnbu2019-b -add $CLIENT Linux RedHat2.6.18
+                        bpplclients $POLICY_NAME_TPM_ORA_LOG -M cbjnbu2019-b -add $CLIENT Linux RedHat2.6.18
+                        bpbackup -i -p $POLICY_NAME_TPM_ORA_DB -s FULL-ARC -h $CLIENT
+                    fi
+                done
+ fi
+#summary
+summary1
+summary2
+
+
+                [ -s $SUMMARY ]
+                        if [ $? = 0 ]; then
+                                cat $SUMMARY|mailx -s "Cloud Summary $TODAY" $MAIL_ADDR
+                        fi
