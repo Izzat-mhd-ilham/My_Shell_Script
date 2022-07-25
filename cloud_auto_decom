@@ -1,0 +1,73 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : backup configuration for cloud server
+# Filename : decomm_cloud_client.sh
+# Date     : 29 Jan 2019
+# Writer   : Izzat Bin Mhd Ilham
+#********************************************************************************
+
+PATH=$PATH:/opt/openv/netbackup/bin/admincmd:/opt/openv/netbackup/bin
+
+LOG_DIR=/cloud_hole/bckp_scripts/logs/
+MAIL_ADDR=cbjbackupteam@dhl.com
+#MAIL_ADDR="cbjbackupteam@dhl.com,infra.delivery.mng.cbj@dhl.com"
+DECOMM_ORI=/tmp/cloud_decomm_ori.txt
+DECOMM=/tmp/cloud_decomm.txt
+LEGIT_DECOMM=/tmp/legit_to_decomm.txt
+CLOUD_POLICY=/tmp/cloud_policies.txt
+CLOUD_CLIENT=/tmp/all_cloud_clients.txt
+CLOUD_POLICY_CLIENT=/tmp/cloud_policies_clients.txt
+CLOUD_DECOMM_SUMMARY=/tmp/cloud_decomm_summary.txt
+
+YEST=`TZ=MET24 date +%m%d`
+TODAY=`date +%m%d`
+
+#bpnbat -login -info /OPS_scripts/bpnbat.txt -loginType WEB
+bpnbat -login -info /OPS_scripts/bpnbat.txt
+
+#collect all decom server from cloud orchestrator
+for ENTRY in `ls /cloud_hole/*.decomm`
+                do cat $ENTRY | awk -F, '{print $3}'; done > $DECOMM_ORI
+
+cat $DECOMM_ORI | sort | uniq > $DECOMM
+
+#list all policies
+bppllist | egrep "CLOUD|AZU" > $CLOUD_POLICY
+
+#list all clients in cloud policies
+for POLICIES in `cat $CLOUD_POLICY`
+        do
+                bppllist $POLICIES | grep CLIENT | awk '{print awk $2}'; done > $CLOUD_CLIENT
+
+#verify cloud decom list with cloud policies
+grep -Fwf $CLOUD_CLIENT $DECOMM > $LEGIT_DECOMM
+[ -s $LEGIT_DECOMM ]
+        if [ $? = 0 ]; then
+                for CLIENT in `cat $LEGIT_DECOMM`
+                do
+                bppllist -U -byclient $CLIENT | egrep "$CLIENT|Name:" | cut -c20-70 | awk '{printf "%s%s",$0,(NR%2?FS:RS)}' | awk '{print $1,$4}'| column -t;done  > $CLOUD_POLICY_CLIENT
+
+                while read POLICIES CLIENTS
+                do
+                        bpplclients $POLICIES -delete $CLIENTS
+                done < $CLOUD_POLICY_CLIENT
+
+                ex -sc '1i|Policy_Name Client_Name' -cx $CLOUD_POLICY_CLIENT  >> $CLOUD_POLICY_CLIENT
+                cat $CLOUD_POLICY_CLIENT | column -t > $CLOUD_DECOMM_SUMMARY
+                mailx -s "Decomissioned Cloud Server |`date +%Y%m%d-%H%M`" $MAIL_ADDR < $CLOUD_POLICY_CLIENT
+
+
+                for CLIENT in `cat $LEGIT_DECOMM`
+                do
+                        nbemmcmd -resethost -machinename $CLIENT
+                        nbhostmgmt -allowautoreissuecert -host $CLIENT -autoreissue 1 -r "automatic reissue refresh"
+                done
+
+        fi
+
+
+mv /cloud_hole/*.decomm /cloud_hole/history
+mv /cloud_hole/*.disable /cloud_hole/history
+mv /cloud_hole/mykullstc*.create /cloud_hole/history
+mv /cloud_hole/mykulwstc*.create /cloud_hole/history
