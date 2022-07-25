@@ -1,0 +1,59 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : To Identify Monthly/Yearly FS and DB Backup failure # Filename : monthly_backup_failure.sh
+# Date     : 14 Jan 2022
+# Writer   : Izzat Bin Mhd Ilham
+#*******************************************************************************
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin:/usr/openv/volmgr/bin
+
+MASTER_SERVER=`nbemmcmd -listhosts|grep cluster  | awk '{print $2}' | awk -F "." '{print$1}'| awk -F "-" '{print$1}'`
+MAIL=cbjbackupteam@dhl.com
+LAST_YEAR=`date +'%y' -d 'last year'`
+CURRENT_YEAR=`date +'%y'`
+LAST_MONTH=`date +'%m' -d 'last month'`
+
+> /tmp/confirmed_skipped_monthly_yearly_backup.txt
+
+
+cd /opt/VRTSnbu/scripts/logs/
+
+function LASTYEAR
+{
+egrep 'yearly|monthly'_full bckp_review.$LAST_YEAR$LAST_MONTH* | awk '$4>1' | awk '{print $5,$6,$7}'| sort |uniq > /tmp/fs_backup_failure_monthly_yearly.txt
+egrep 'yearly|monthly'_full bckp_review.$LAST_YEAR$LAST_MONTH* | awk '$4<=1' | awk '{print $5,$6,$7}'| sort |uniq > /tmp/fs_backup_success_monthly_yearly.txt
+grep -vFxf  /tmp/fs_backup_success_monthly_yearly.txt  /tmp/fs_backup_failure_monthly_yearly.txt > /tmp/fs_monthly_skipped_backup.txt
+
+egrep MONTH bckp_review.$LAST_YEAR$LAST_MONTH* | egrep -vE 'Default-Application-Backup|FS' | awk '$4>0' |  awk '{print $5,$6,$7}' | sort |uniq > /tmp/db_backup_failure_monthly_yearly.txt
+egrep MONTH bckp_review.$LAST_YEAR$LAST_MONTH* | egrep -vE 'Default-Application-Backup|FS' | awk '$4=0'|  awk '{print $5,$6,$7}' | sort |uniq > /tmp/db_backup_success_monthly_yearly.txt
+grep -vFxf /tmp/db_backup_success_monthly_yearly.txt /tmp/db_backup_failure_monthly_yearly.txt > /tmp/db_monthly_skipped_backup.txt
+}
+
+function CURRENTYEAR
+{
+egrep 'yearly|monthly'_full bckp_review.$CURRENT_YEAR$LAST_MONTH* | awk '$4>1' | awk '{print $5,$6,$7}'| sort |uniq > /tmp/fs_backup_failure_monthly_yearly.txt
+egrep 'yearly|monthly'_full bckp_review.$CURRENT_YEAR$LAST_MONTH* | awk '$4<=1' | awk '{print $5,$6,$7}'| sort |uniq > /tmp/fs_backup_success_monthly_yearly.txt
+grep -vFxf  /tmp/fs_backup_success_monthly_yearly.txt  /tmp/fs_backup_failure_monthly_yearly.txt > /tmp/fs_monthly_skipped_backup.txt
+
+egrep MONTH bckp_review.$CURRENT_YEAR$LAST_MONTH* | egrep -vE 'Default-Application-Backup|FS' | awk '$4>0' |  awk '{print $5,$6,$7}' | sort |uniq > /tmp/db_backup_failure_monthly_yearly.txt
+egrep MONTH bckp_review.$CURRENT_YEAR$LAST_MONTH* | egrep -vE 'Default-Application-Backup|FS' | awk '$4=0'|  awk '{print $5,$6,$7}' | sort |uniq > /tmp/db_backup_success_monthly_yearly.txt
+grep -vFxf /tmp/db_backup_success_monthly_yearly.txt /tmp/db_backup_failure_monthly_yearly.txt > /tmp/db_monthly_skipped_backup.txt
+}
+         MONTH_JAN_CHECK=`date +'%m'`
+                if [ $MONTH_JAN_CHECK = 01 ]; then
+                      LASTYEAR
+                else
+                      CURRENTYEAR
+                fi
+
+printf "\t Hostname Schedule Policy_Name \n"  > /tmp/confirmed_failed_monthly_yearly_backup.txt
+cat /tmp/fs_monthly_skipped_backup.txt /tmp/db_monthly_failed_backup.txt >> /tmp/confirmed_failed_monthly_yearly_backup.txt
+
+cat /tmp/confirmed_failed_monthly_yearly_backup.txt | column -t > /tmp/confirmed_failed_monthly_yearly_backup2.txt
+
+        [ -s /tmp/confirmed_failed_monthly_yearly_backup2.txt ]
+                if [ $? = 0 ]; then
+                        mailx -s "$MASTER_SERVER : Monthly/Yearly FS and MSSQL DB Backup Failure" $MAIL  < /tmp/confirmed_failed_monthly_yearly_backup2.txt
+                fi
+
