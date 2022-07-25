@@ -1,0 +1,57 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : Identify Missed SQL client's exclude list check on LDF, MDF, NDF # Filename : LDF_MDF_NDF_exclusion_check.sh
+# Date     : 24 Jan 2017
+# Writer   : Izzat Bin Mhd Ilham
+#********************************************************************************
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin
+MAIL="cbjbackupteam@dhl.com"
+
+#TO clear the list file
+> /tmp/SQL_Clients.txt
+> /tmp/MISSED_EXCLUDE.txt
+> /tmp/MISSED_EXCLUDE_Final.txt
+> /tmp/Policy_SQL.txt
+> /tmp/Pingable_Client.txt
+> /tmp/exclude_list.txt
+
+#collect list of SQL backup policy
+bppllist | grep -w SQL > /tmp/Policy_SQL.txt
+
+for POLICY in `cat /tmp/Policy_SQL.txt`
+do
+   #list out clients from the SQL backup policy
+   bpplclients $POLICY -noheader | awk '{print $3}' >> /tmp/SQL_Clients.txt
+
+done
+        for Valid_Client in `cat /tmp/SQL_Clients.txt`
+                do
+                  ping $Valid_Client -c 2
+                    if [ $? = 0 ]; then
+                        echo "${Valid_Client}" >> /tmp/Pingable_Client.txt
+                    fi
+                done
+
+        for CLIENT_CHECK in `cat /tmp/Pingable_Client.txt`
+          do
+            #to identify clients which missed the exclusion
+            CHECK_COUNT=`bpgetconfig -M $CLIENT_CHECK exclude | awk '{print $3}'|  egrep -c "ldf|mdf|ndf" 2> /dev/null`
+                        if [ $CHECK_COUNT != 3 ]; then
+                                echo "${CLIENT_CHECK}" >> /tmp/MISSED_EXCLUDE.txt
+                        fi
+
+         done
+        cat /tmp/MISSED_EXCLUDE.txt | sort| uniq > /tmp/MISSED_EXCLUDE_Final.txt
+
+
+        #automatically added the exclusion
+        for ADD_EXCLUDE_CLIENT in `cat /tmp/MISSED_EXCLUDE_Final.txt`
+                do
+                        bpgetconfig -M $ADD_EXCLUDE_CLIENT | grep "^Exclude = " > /tmp/exclude_list.txt
+                        echo "EXCLUDE = *.ldf EXCLUDE = *.ndf EXCLUDE = *.mdf" | sed 's/EXCLUDE/\nEXCLUDE/g'| tail -3 >> /tmp/exclude_list.txt
+                        echo "INCLUDE = master.mdf INCLUDE = mastlog.ldf INCLUDE = mssqlsystemresource.mdf INCLUDE = mssqlsystemresource.ldf" | sed 's/INCLUDE/\nINCLUDE/g' > /tmp/include_list.txt
+                        bpsetconfig -h $ADD_EXCLUDE_CLIENT /tmp/exclude_list.txt
+                        bpsetconfig -h $ADD_EXCLUDE_CLIENT /tmp/include_list.txt
+                done
