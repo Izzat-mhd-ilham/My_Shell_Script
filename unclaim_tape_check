@@ -1,0 +1,71 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : Identify Missing Media Tape from Offsite # Filename : return_date_tape_check.sh
+# Date     : 14 Feb 2017
+# Writer   : Izzat Bin Mhd Ilham
+#********************************************************************************
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin:/usr/openv/volmgr/bin
+
+> /tmp/media_returndate.txt
+> /tmp/check_result.txt
+> /tmp/total_unclaimned_tapes.txt
+> /tmp/header.txt
+> /tmp/missing_tape.txt
+> /tmp/missing_tape2.txt
+> /tmp/confirm_missing_tape.txt
+
+MASTER_SERVER=`nbemmcmd -listhosts|grep cluster  | awk '{print $2}'` #MAIL="cbjbackupteam@dhl.com"
+MAIL="new.servicedesk@dhl.com"
+#MAIL="izzat.mhdilham@dhl.com"
+CURRENT_DATE=`date +%Y%m%d`
+
+vmquery -rt NONE -bx | awk '{print $1}' | sed 1,3d > /tmp/NONE_List.txt
+
+for MEDIA in `cat /tmp/NONE_List.txt`
+  do
+     vmquery -m $MEDIA -w | awk '{print $1,$32,$29}' | tail -n 1 | grep -v 00/00/0000 >> /tmp/media_returndate.txt
+  done
+
+cat /tmp/media_returndate.txt | awk '{print $2}' | awk -F "/" '{print$3,$1,$2}' | sed 's/[[:blank:]]//g' > /tmp/returndate_nospace.txt
+
+for DATE in `cat /tmp/returndate_nospace.txt`
+  do
+     CAL_DATE=$(($CURRENT_DATE - ($DATE))) echo $CAL_DATE >> /tmp/check_result.txt
+  done
+
+paste /tmp/media_returndate.txt /tmp/check_result.txt > /tmp/id_date_result.txt
+while read ID DATE VAULT RESULT
+        do
+                if [ $RESULT -gt 0 ]
+                        then
+                        echo $ID $DATE $VAULT
+                fi
+        done < /tmp/id_date_result.txt > /tmp/missing_tape.txt
+
+for ID in `cat /tmp/missing_tape.txt |awk '{print $1}'`
+     do
+       vmquery -m $ID  -w | awk '{print $30}' | tail -n 1 | grep -v 00/00/0000 >> /tmp/missing_tape2.txt
+     done
+
+paste /tmp/missing_tape.txt /tmp/missing_tape2.txt > /tmp/missing_tape3.txt
+
+cat /tmp/missing_tape3.txt | awk '{ print " " $1 "              " $2 "         " $3 "         " $4}' | sort -nk2 > /tmp/missing_tape_final.txt
+printf "Media ID      Return Date(MM/DD/YYYY)     Vault Name     Vault Date(MM/DD/YYYY) \n" > /tmp/header.txt
+printf "==================================================================== \n" >> /tmp/header.txt
+printf "    \n" > /tmp/total_unclaimned_tapes.txt
+printf "TOTAL : ` cat /tmp/missing_tape_final.txt | wc -l` Unit\n" >> /tmp/total_unclaimned_tapes.txt
+printf "Status: Assigned \n" > /tmp/confirm_missing_tape.txt
+printf "Assignment Group: GLOBAL-OPS.BACKUP \n" >> /tmp/confirm_missing_tape.txt
+printf "Service: BACKUP SERVICES \n" >> /tmp/confirm_missing_tape.txt
+printf "Impact: None / Minor \n" >> /tmp/confirm_missing_tape.txt
+printf "Configuration_item: CBJ-SVLX-`hostname | tr a-z A-Z | cut -d. -f1` \n" >> /tmp/confirm_missing_tape.txt
+printf "Urgency: Low \n" >> /tmp/confirm_missing_tape.txt printf "  \n" >> /tmp/confirm_missing_tape.txt
+cat /tmp/header.txt /tmp/missing_tape_final.txt /tmp/total_unclaimned_tapes.txt >> /tmp/confirm_missing_tape.txt
+
+[ -s /tmp/missing_tape_final.txt ]
+if [ $? = 0 ]; then
+#cat /tmp/header.txt /tmp/missing_tape_final.txt /tmp/total_unclaimned_tapes.txt | mailx -s "$MASTER_SERVER | Unclaimed Tape From Offsite : ` cat /tmp/missing_tape_final.txt | wc -l` Unit" $MAIL
+mailx -s "$MASTER_SERVER | Unclaimed Tape From Offsite : ` cat /tmp/missing_tape_final.txt | wc -l` Unit" $MAIL < /tmp/confirm_missing_tape.txt
+fi
