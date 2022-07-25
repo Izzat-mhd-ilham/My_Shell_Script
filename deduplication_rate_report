@@ -1,0 +1,42 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : To populate deduplication report
+# Filename : deduplication_rate_report.sh
+# Date     : 3 Aug 2021
+# Writer   : Izzat Bin Mhd Ilham
+#*******************************************************************************
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin:/usr/openv/volmgr/bin
+
+#MAIL=izzat.mhdilham@dhl.com
+MAIL=cbjbackupteam@dhl.com
+TODAY=`date +%y%m%d`
+
+> /tmp/dedup_report_final.txt
+> /tmp/backup_time.txt
+> /tmp/backup_elapse_time.txt
+
+bpdbjobs -most_columns -ignore_parent_jobs | egrep 'FS|WIN'|grep -vE SLP | awk -F',' '{ print $1,$3,$7,$8,$5,$6,$15,$58 }' | awk '$2>2' | awk '$8<60' | awk '$7>10000000' |awk  '$8!=""' > /tmp/dedup_report.txt
+
+for JOBID in `cat /tmp/dedup_report.txt | awk '{print $1}'`
+        do
+                bpdbjobs -jobid $JOBID -all_columns | awk -F' write time:' '{ print $2 }' | awk -F',' '{ print $1 }' >> /tmp/backup_elapse_time.txt
+                bpdbjobs -jobid $JOBID -all_columns | awk -F " - end writing" '{print $1}' | awk -F, '{print $NF}' | tr -s ' ' '-' >> /tmp/backup_time.txt
+        done
+
+
+paste -d' ' /tmp/dedup_report.txt /tmp/backup_time.txt /tmp/backup_elapse_time.txt | awk '{print $3,$4,$5,$6,$7/1024/1024,$8=sprintf("%3.0f",$8),$9,$10}' > /tmp/dedup_report2.txt
+cat /tmp/dedup_report2.txt | awk '{print $1,$2,$3,$4,$5=sprintf("%3.0f",$5),$6,$7,$8}' > /tmp/dedup_report3.txt
+
+printf "SERVER                        MEDIA_SERVER                POLICY_NAME                      SCHEDULE     SIZE   DEDUP  DATE_AND_TIME WRITE_TIME \n" > /tmp/dedup_report_final.txt
+cat /tmp/dedup_report3.txt | awk '{print $1,$2,$3,$4,$5"gb",$6"%",$7,$8}'  | sort | uniq | column -t >>  /tmp/dedup_report_final.txt
+cat  /tmp/dedup_report_final.txt |  column -t > /tmp/dedup_report_final2.txt
+sed '2 i ==============================================================================================================================================' /tmp/dedup_report_final2.txt > /tmp/dedup_report_final3.txt
+
+cat /tmp/dedup_report_final3.txt >  /opt/VRTSnbu/scripts/logs/dedupe_check.$TODAY
+
+        [ -s /tmp/dedup_report_final3.txt ]
+                if [ $? = 0 ]; then
+                        mailx -s "NBURIM : Deduplication Rate Report, less than 60%" $MAIL < /tmp/dedup_report_final3.txt
+                fi
