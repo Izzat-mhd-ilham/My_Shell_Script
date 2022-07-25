@@ -1,0 +1,63 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : Identify Tape availability in a Pool
+# Filename : tape_availability_check.sh
+# Date     : 4 Sept 2018
+# Writer   : Izzat Bin Mhd Ilham
+#********************************************************************************
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin
+
+> /tmp/tape_id.txt
+> /tmp/VolGroup.txt
+
+read -p "         Press <Enter> to add list of tapes required for restoration...this will open the VI Editor, feel free to copy paste" -n1 -s
+printf "\t \n"
+vi /tmp/tape_id.txt
+cat /tmp/tape_id.txt |sort|uniq > /tmp/tape_id2.txt
+vmquery -rt NONE -bx | awk '{print $1}' | sed 1,3d > /tmp/NONE_List.txt
+grep -f /tmp/NONE_List.txt /tmp/tape_id2.txt > /tmp/missing_tape.txt 2> /dev/null
+printf "\t \n"
+
+[ -s /tmp/missing_tape.txt ]
+    if [ $? = 0 ]; then
+                clear
+                printf "\t \n"
+                printf "\t \n"
+                printf "\t Tapes below are not available in the library: \n"
+                        for i in `cat /tmp/missing_tape.txt`
+                do
+                    echo -e "\t\t\t$i"
+                done
+        printf "\t \n"
+
+                for i in `cat /tmp/missing_tape.txt`
+                do
+                vmquery -m $i -W | awk '{print $11}' | tail -n 1 | awk -F "-" '{print$1}' >> /tmp/VolGroup.txt
+                done
+
+                cat /tmp/VolGroup.txt | sort | uniq  > /tmp/VolGroup2.txt
+                        MEDIA_SERVER=`cat /tmp/VolGroup2.txt`
+                                if [ $MEDIA_SERVER == "My_offsite_volumes_TLD0" ]; then
+                                        echo TLD0  > /tmp/Library_Name.txt
+                                else
+                                        echo TLD5  > /tmp/Library_Name.txt
+                                fi
+
+                printf "\t \n"
+                printf "\t Partition slot for media tape: `cat /tmp/Library_Name.txt`\n"
+                printf "\t Please request tape from Iron Mountain\n"
+                printf "\t \n"
+
+
+                else
+                clear
+                printf "\t \n"
+                printf "\t \n"
+                printf "\t Keep Calm And Restore (^_^) \n"
+                printf "\t All Tapes Are In The Library \n"
+                printf "\t \n"
+                printf "\t \n"
+
+        fi
