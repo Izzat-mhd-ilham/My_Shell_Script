@@ -1,0 +1,30 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : To notify offline live media server
+# Filename : offline_active_media_server_notification.sh
+# Date     : 13 July 2021
+# Writer   : Izzat Bin Mhd Ilham
+#*******************************************************************************
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin:/usr/openv/volmgr/bin
+MAIL="cbjbackupteam@dhl.com"
+SMSLIST="+601127652337@sms.dhl.com, +60193862241@sms.dhl.com"
+
+
+nbemmcmd -listhosts -list_sts_media_servers -masterserver nburim-b -verbose | egrep 'MachineName|MachineState' | sed 'N;s/\n/ /' | awk '{print $3,$6,$7}' | sed 's/["]//g' > /tmp/media_servers_status_details.txt
+
+   while read MEDIA_SERVER STATUS
+                do
+                if [[ $STATUS == "not active" ]]
+                    then
+                ping $MEDIA_SERVER -c 2
+                                        if [ $? == 0 ]; then
+                                           printf "MEDIA_SERVER                      STATUS             \n" > /tmp/offline_media_server.txt
+                                           printf "$MEDIA_SERVER                     $STATUS             \n" >> /tmp/offline_media_server.txt
+                                           cat /tmp/offline_media_server.txt | column -t > /tmp/offline_media_server2.txt
+                                   mailx -s "WARNING!!! $MEDIA_SERVER Media Server is Offline on NBURIM" $MAIL  < /tmp/offline_media_server2.txt
+                                   mailx -s "WARNING!!! $MEDIA_SERVER Media Server is Offline on NBURIM" $SMSLIST   < /tmp/offline_media_server2.txt
+                            fi
+                fi
+        done < /tmp/media_servers_status_details.txt
