@@ -1,0 +1,105 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : To run failed weekly job
+# Filename : run_weekly_failed_job.sh
+# Date     : 29 June 2021
+# Writer   : Izzat Bin Mhd Ilham
+#*******************************************************************************
+#VER 1.1 | 24-02-2022 by Izzat
+#adding list of error column
+#fix null output for last backup date image available
+#create log file failed_rerun.* at /opt/VRTSnbu/scripts/logs
+#removed ACTIVE_DAILY_INCR_JOB column from report, output only available at putty session
+#----------------------------------------------------------------------------------------
+#VER 1.2 | 02-03-2022 by Izzat
+#adding new column EXPIRY_DATE,expiry date of last successful backup
+##----------------------------------------------------------------------------------------
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin:/usr/openv/volmgr/bin
+
+MAIL=cbjbackupteam@dhl.com
+#MAIL=izzat.mhdilham@dhl.com
+> /tmp/last_successful_fullbackup.txt
+> /tmp/re_run_failed_fullbackup_job.txt
+> /tmp/last_successful_fullbackup.txt
+> /tmp/error_codes.txt
+> /tmp/backupid_date.txt
+
+TODAY=`date +%y%m%d`
+
+#to list out weekly failed job
+bpdbjobs -report | awk '{print $4,$5,$6,$7,$3}' | egrep 'weekly_full|monthly_full' | awk '$1>2' | grep -vE 'Active|Suspended' | awk '{print $2,$3,$4}'|sort |uniq  > /tmp/weekly_failedjob.txt
+
+#to list out weekly completed job
+bpdbjobs -report | awk '{print $4,$5,$6,$7,$3}' | egrep 'weekly_full|monthly_full'| awk '$1<2'| grep -vE 'Active|Suspended' | awk '{print $2,$3,$4}' > /tmp/weekly_successjob.txt
+
+#to list out weekly active running job
+bpdbjobs -report | awk '{print $4,$5,$6,$7,$3}' | egrep 'weekly_full|monthly_full'| grep  Active |  awk '{print $1,$2,$3}' > /tmp/weekly_active_runningjob.txt
+
+#to list out Daily active running job
+bpdbjobs -report | awk '{print $4,$5,$6,$7,$3}' | egrep 'daily_diff'| grep  Active |  awk '{print $3}'| sort |uniq |awk '{print $0, "YES"}' > /tmp/yes_daily_active_backup.txt
+
+#compile success and active job
+cat /tmp/weekly_successjob.txt /tmp/weekly_active_runningjob.txt > /tmp/weekly_job_ok.txt
+
+#sort success and active job
+cat /tmp/weekly_job_ok.txt | sort | uniq > /tmp/weekly_job_ok2.txt
+#filter genuine failed weekly job
+grep -vFxf /tmp/weekly_job_ok2.txt  /tmp/weekly_failedjob.txt | awk '{print $3,$1,$2}' | sort | uniq | column -t  > /tmp/confirmed_failed_weekly_job.txt
+
+#to identify client that not having active daily backup job
+awk 'NR==FNR {exclude[$1];next} !($1 in exclude)' /tmp/yes_daily_active_backup.txt /tmp/confirmed_failed_weekly_job.txt | awk '{print $1}'| sort | uniq | awk '{print $0, "NO"}'  > /tmp/no_daily_active_backup.txt
+
+cat /tmp/yes_daily_active_backup.txt /tmp/no_daily_active_backup.txt | sort | uniq > /tmp/combine_yes_no_inc_backup.txt
+
+cat /tmp/confirmed_failed_weekly_job.txt
+
+read -p " Please confirm listed jobs above before running[y/n]: " RESP
+
+if [ "$RESP" = "y" ]; then
+#run failed weekly job
+   while read CLIENTS POLICIES SCHEDULE
+        do
+            bpbackup -i -p $POLICIES  -s $SCHEDULE -h $CLIENTS
+        done < /tmp/confirmed_failed_weekly_job.txt
+
+        [ -s /tmp/confirmed_failed_weekly_job.txt ]
+          if [ $? = 0 ]; then
+                printf "CLIENT_NAME             POLICY_NAME             SCHEDULE_NAME          ACTIVE_DAILY_INCR_JOB\n" > /tmp/re_run_failed_fullbackup_job.txt
+                #perform vlookup
+                join -o 1.1,1.2,1.3,2.2 -1 1 -2 1 /tmp/confirmed_failed_weekly_job.txt  /tmp/combine_yes_no_inc_backup.txt    >> /tmp/re_run_failed_fullbackup_job.txt
+                cat /tmp/re_run_failed_fullbackup_job.txt| awk '{print $1,$2}' | tail -n +2 > /tmp/hostname_affectedpolicy.txt
+
+                while read CLIENTS POLICIES
+                   do
+                       bpcatlist -client $CLIENTS | grep $POLICIES | egrep 'weekly_full|monthly_full|adhoc_full'| head -n 1 | awk '{print $1,$3$2$5}' | awk -v def="NOBACKUP" '{print} END { if(NR==0) {print def} }'  >> /tmp/backupid_date.txt
+                         while read BACKUP_ID DATE
+                            do
+                                if [[ $BACKUP_ID == NOBACKUP ]]; then
+                                        printf "NO_BACKUP_RECORD\n"
+                                        printf "NO_BACKUP_RECORD\n"
+                                else
+                                        date -d $DATE '+%m/%d/%Y'
+                                        bpimagelist -backupid $BACKUP_ID -U | tail -1 | awk '{print $3}'
+                                fi
+                            done < /tmp/backupid_date.txt |  sed 'N;s/\n/ /' > /tmp/lastfullbackup_expiry_date.txt
+                      bpdbjobs -report  | grep $CLIENTS| grep $POLICIES | grep -vE Active | awk '$4>1' | awk '{print $4}'| sort | uniq | xargs | sed 's/ /,/g' >> /tmp/error_codes.txt
+                   done < /tmp/hostname_affectedpolicy.txt
+
+                   sed  -i '1i LAST_SUCCESSFUL_FULL_BACKUP    EXPIRY_DATE' /tmp/lastfullbackup_expiry_date.txt
+                   sed  -i '1i ERROR_CODES' /tmp/error_codes.txt
+                   paste  /tmp/re_run_failed_fullbackup_job.txt /tmp/error_codes.txt /tmp/lastfullbackup_expiry_date.txt | column -t > /tmp/re_run_failed_fullbackup_job2.txt
+                   cat /tmp/re_run_failed_fullbackup_job2.txt | awk '{print $1,$2,$3,$5,$6,$7}'| column -t  > /tmp/re_run_failed_fullbackup_job3.txt
+                   sed  -i '2i ----------------------------------------------------------------------------------------------------------------------' /tmp/re_run_failed_fullbackup_job3.txt
+                   mailx -s "NBURIM : Rerun job of last weekend full backup job" $MAIL  < /tmp/re_run_failed_fullbackup_job3.txt
+                   cat /tmp/re_run_failed_fullbackup_job3.txt > /opt/VRTSnbu/scripts/logs/failed_rerun.$TODAY
+                   printf "\t \n"
+                   printf "\t Full backup job has been executed \n"
+                   printf "\t Please monitor in activity monitor \n"
+                   printf "\t \n"
+                   cat /tmp/re_run_failed_fullbackup_job2.txt |  column -t
+          fi
+else
+  clear ;break ;
+fi
