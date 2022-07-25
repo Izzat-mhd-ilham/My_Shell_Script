@@ -1,0 +1,76 @@
+#!/bin/sh
+#********************************************************************************
+# owner    : CBJ Backup and Recovery Team
+# Function : Count failed backup job for past 24 hours
+# Filename : abended_job.sh
+# Date     : 24 Aug 2017
+# Writer   : Izzat Bin Mhd Ilham
+#********************************************************************************
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin
+
+> /tmp/abended_job.txt
+
+MASTER_SERVER=`nbemmcmd -listhosts|grep cluster  | awk '{print $2}'`
+MONTH=`date +%m`
+DAY=`date +%d`
+YEAR=`date +%y`
+CENTURY=`date +%C`
+CURRENT_DATE="$YEAR$MONTH$DAY"
+JOBLIST_TEMP_FILE=/tmp/bperror.out.$$
+
+if [[ `expr $DAY + 0` -eq 1 ]]; then
+   if [[ $MONTH -eq 1 ]]; then
+      PREV_MONTH=12
+      PREV_YEAR=`expr $YEAR - 1`
+   else
+      PREV_MONTH=`expr $MONTH - 1`
+      PREV_YEAR=`expr $YEAR + 0`
+   fi
+   cal $PREV_MONTH $PREV_YEAR | grep 31 1>/dev/null 2>&1
+   if [[ $? -eq 0 ]]; then
+      PREV_DAY=31
+   else
+      if [[ $PREV_MONTH -eq 2 ]]; then
+         cal $PREV_MONTH $PREV_YEAR | grep 29 1>/dev/null 2>&1
+         if [[ $? -eq 0 ]]; then
+            PREV_DAY=29
+         else
+            PREV_DAY=28
+         fi
+      else
+         PREV_DAY=30
+      fi
+   fi
+else
+   PREV_YEAR=`expr $YEAR + 0`
+   PREV_MONTH=`expr $MONTH + 0`
+   PREV_DAY=`expr $DAY + 0`
+   PREV_DAY=`expr $PREV_DAY - 1`
+fi
+
+if [[ `echo $PREV_YEAR | wc -c` -eq 2 ]]; then
+   PREV_YEAR=0$PREV_YEAR
+fi
+if [[ `echo $PREV_MONTH | wc -c` -eq 2 ]]; then
+   PREV_MONTH=0$PREV_MONTH
+fi
+if [[ `echo $PREV_DAY | wc -c` -eq 2 ]]; then
+   PREV_DAY=0$PREV_DAY
+fi
+
+YESTERDAY="$PREV_MONTH/$PREV_DAY/$CENTURY$PREV_YEAR"
+bperror -backstat -l -d $YESTERDAY 00:00:00 -e $YESTERDAY 23:59:59 | awk '{print $9,$14,$16,$19}' | grep -vE Default-Application-Backup | awk '$4 > 1' | wc -l > /tmp/abended_job_count.txt
+printf "Service: BACKUP SERVICES \n" > /tmp/abended_job.txt
+printf "Short Description: `cat /tmp/abended_job_count.txt` ABENDED jobs rerun on `echo $YESTERDAY` \n"  >> /tmp/abended_job.txt
+printf "Status: Assigned \n" >> /tmp/abended_job.txt
+printf "Assignment Group: GLOBAL-OPS.BACKUP \n" >> /tmp/abended_job.txt
+printf "Impact: None / Minor \n" >> /tmp/abended_job.txt
+printf "Configuration_item: CBJ-SVLX-`hostname | tr a-z A-Z | cut -d. -f1` \n" >> /tmp/abended_job.txt
+printf "Urgency: Low \n" >> /tmp/abended_job.txt
+
+JOB_COUNT=`cat /tmp/abended_job_count.txt`
+if [ $JOB_COUNT != 0 ]; then
+/opt/OV/bin/opcmsg severity=warning application=CBJ_NETBACKUP object=NBU msg_grp=OS msg_text="`cat /tmp/abended_job_count.txt` ABENDED jobs rerun on `echo $YESTERDAY` $MASTER_SERVER"
+#mailx -s "`cat /tmp/abended_job_count.txt` ABENDED jobs rerun on `echo $YESTERDAY` $MASTER_SERVER" new.servicedesk@dhl.com  < /tmp/abended_job.txt
+fi
