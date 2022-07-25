@@ -1,0 +1,171 @@
+#!/bin/bash
+# $Header: grab_new_clients.sh
+# 1.00 KR 2014/04/04 starting release
+# 1.10 Zdenek Gasek, 2014/06/04 enabled repetitive run to collect create strings into one BSRyyyymmdd.txt # 1.11 KR 2014/06/11 KR add test if any .create files are available
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin
+
+> /tmp/ping_ok.txt
+> /tmp/ping_ko.txt
+> /tmp/dns_ok.txt
+> /tmp/dns_ko.txt
+> /tmp/ping_barn_ok.txt
+> /tmp/ping_barn_ko.txt
+> /tmp/telnet.txt
+> /tmp/ready4backupconfig.txt
+> /tmp/socket_ok.txt
+> /tmp/socket_ko.txt
+> /tmp/CA_cert_ok.txt
+> /tmp/CA_cert_ko.txt
+> /tmp/client.txt
+> /tmp/cloud_mssql_list.txt
+> /tmp/cloud_ora_list.txt
+
+ROOT=/cloud_hole/
+WRK_DIR=/cloud_hole/bckp_scripts/
+LOG_DIR=/cloud_hole/bckp_scripts/logs/
+MAIL_ADDR=cbjbackupteam@dhl.com
+MAIL_ADDR_FAIL=cbjbackupteam@dhl.com
+# LOG="$LOG_DIR"CL_bckp_`date +%Y%m%d-%H%M%S`.log
+
+LOG="$LOG_DIR"CL_bckp_`date +%Y%m%d-%H%M`.log
+WRK="$LOG_DIR"CL_bckp_`date +%Y%m%d-%H%M`.txt
+RUN="$LOG_DIR"CL_bckp_`date +%Y%m%d-%H%M`.cmd
+
+YEST=`TZ=MET24 date +%m%d`
+TODAY=`date +%m%d`
+
+/usr/bin/find $LOG_DIR -name \*.* -mtime 7 | xargs rm -f
+# Check if there is create request
+files=`ls /cloud_hole/*.* 2> /dev/null | wc -l`
+if [ "$files" != "0" ];
+    then
+        echo "# check and install new clients:" > $WRK
+        else
+        exit 0
+fi
+
+
+# grab all installation requests
+# collect server name from file *.create
+
+for ENTRY in `ls /cloud_hole/*.create`; do awk -F, '{CLNT=$3} END {printf ("%s\n" ,CLNT)}' $ENTRY | grep -o '^[^\-]*' | egrep -v "tc|xa"; done > $WRK
+
+for ENTRY in `ls /cloud_hole/*.create`
+        do
+             sed -n '2p' $ENTRY | grep SQL
+                 if [ $? = 0 ]
+                     then
+                         awk -F, '{CLNT=$3} END {printf ("%s\n" ,CLNT)}' $ENTRY >> /tmp/cloud_mssql_list.txt
+             fi
+    done
+
+for ENTRY in `ls /cloud_hole/*.create`
+        do
+             sed -n '2p' $ENTRY | grep ORA
+                 if [ $? = 0 ]
+                     then
+                         awk -F, '{CLNT=$3} END {printf ("%s\n" ,CLNT)}' $ENTRY >> /tmp/cloud_ora_list.txt
+             fi
+    done
+
+
+
+# run chck/install command file
+#chmod +x $WRK
+cat $WRK > $LOG
+# run weekly full backups on OK tested and registered clients
+#grep PRG_NBU_EOD_Immed_Backup $LOG | egrep '_full|_weekly|_daily|_FUL' | sort -u > $RUN
+#chmod +x $RUN
+
+#touch "$WRK".create
+#cat $WRK "$WRK".create
+#mv "$WRK".create "$ROOT"history
+#mv /cloud_hole/*.create /cloud_hole/history
+mv /cloud_hole/*.enable /cloud_hole/history
+
+#$RUN >> $LOG
+#cat $LOG|mailx -s "Cloud log $TODAY" $MAIL_ADDR
+
+for CLIENTS in `cat $WRK`
+do
+ping $CLIENTS -c 2
+if [ $? != 0 ]; then
+echo $CLIENTS >> /tmp/ping_ko.txt 2> /dev/null
+else
+echo $CLIENTS >> /tmp/ping_ok.txt 2> /dev/null
+fi done
+
+    for BARN in `cat /tmp/ping_ok.txt`
+                do
+        BackupIP="$BARN-b"
+        echo $BackupIP >> /tmp/client.txt
+        done
+
+                for CLIENTS2 in `cat /tmp/client.txt`
+                        do
+                        nslookup $CLIENTS2 -c
+                        if [ $? = 1 ]; then
+                        echo $CLIENTS2 >> /tmp/dns_ko.txt 2> /dev/null
+                        else
+                        echo $CLIENTS2 >> /tmp/dns_ok.txt 2> /dev/null
+                        fi
+                        done
+                                for CLIENTS3 in `cat /tmp/dns_ok.txt`
+                                        do
+                                        ping $CLIENTS3 -c 2
+                                        if [ $? = 0 ]; then
+                                        echo $CLIENTS3 >> /tmp/ping_barn_ok.txt 2> /dev/null
+                                        else
+                                        echo $CLIENTS3 >> /tmp/ping_barn_ko.txt 2> /dev/null
+                                        fi
+                                        done
+
+                                                for CLIENTS4 in `cat /tmp/ping_barn_ok.txt`
+                                                        do
+                                                        sleep 3 | telnet $CLIENTS4 1556 >> /tmp/telnet.txt
+                                                        done
+                                                        cat /tmp/telnet.txt | grep Connected | awk '{print $3}' > /tmp/telnet_ok1.txt 2> /dev/null
+                                                        cat /tmp/telnet_ok1.txt | awk -F "." '{print$1}' > /tmp/telnet_ok.txt 2> /dev/null
+                                                        cat /tmp/telnet.txt | grep timed | awk '{print $5}' | awk -F ":" '{print$1}' > /tmp/telnet_ko.txt 2> /dev/null
+
+
+                                                                for CLIENTS5 in `cat /tmp/telnet_ok.txt`
+                                                                        do
+                                                                          bptestbpcd -client $CLIENTS5
+                                                                        if [ $? = 61 ]; then
+                                                                           echo $CLIENTS5 >> /tmp/CA_cert_ko.txt 2> /dev/null
+                                                                        elif [ $? = 1 ]; then
+                                                                           echo $CLIENTS5 >> /tmp/socket_ok.txt  2> /dev/null
+                                                                        else
+                                                                           echo $CLIENTS5 >> /tmp/socket_ko.txt 2> /dev/null
+                                                                        fi
+                                                                        done
+
+
+                        cat /tmp/socket_ok.txt | sort | uniq > /tmp/ready4backupconfig.txt
+
+                        for PING_KO in `cat /tmp/ping_ko.txt`
+                        do
+                                NotReady="$PING_KO-b"
+                                echo $NotReady >> /tmp/client.txt
+                                done
+
+                        grep -vFwf /tmp/ready4backupconfig.txt /tmp/client.txt > /tmp/not_legit_clients.txt
+               for MOVING in `cat /tmp/ready4backupconfig.txt | sed 's/-b//'`
+                        do
+                                mv /cloud_hole/$MOVING.create /cloud_hole/history
+                        done
+
+                [ -s /tmp/cloud_mssql_list.txt ]
+                if [ $? = 0 ]; then
+                grep -Fwf /tmp/cloud_mssql_list.txt /tmp/ready4backupconfig.txt > /tmp/cloud_mssql_list_final.txt
+                fi
+
+                [ -s /tmp/cloud_ora_list.txt ]
+                if [ $? = 0 ]; then
+                grep -Fwf /tmp/cloud_ora_list.txt /tmp/ready4backupconfig.txt > /tmp/cloud_ora_list_final.txt
+                fi
+
+
+.  /cloud_hole/bckp_scripts/add_client_policy.sh
