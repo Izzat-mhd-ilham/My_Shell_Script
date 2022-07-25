@@ -1,0 +1,42 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : To notify the numbers of library slots available
+# Filename : library_slots_notification.sh
+# Date     : 27 May 2022
+# Writer   : Izzat Bin Mhd Ilham
+#*******************************************************************************
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin:/usr/openv/volmgr/bin
+TOTAL_NO_TAPES_IN_LIBRARY=`vmquery -rn 0 -bx | sed 1,3d | wc -l`
+NO_TAPES_RETURN=`vmquery -v My_offsite_volumes_TLD0 -l  | egrep SCRATCH-POOL |  awk -F " " '{print$32}' |  egrep -v "00/00/0000" | wc -l`
+TOTAL_NO_LIBRARY_SLOTS=564
+SLOTS_AVAILABLE=$(($TOTAL_NO_LIBRARY_SLOTS  - ($TOTAL_NO_TAPES_IN_LIBRARY)))
+MAIL=cbjbackupteam@dhl.com
+#MAIL=izzat.mhdilham@dhl.com
+function summary
+{
+printf "   \n" > /tmp/slots_summary.txt
+printf "(TLD0)Library slots status summary \n" >> /tmp/slots_summary.txt
+printf "========================== \n" >> /tmp/slots_summary.txt
+printf "Total numbers of slots: $TOTAL_NO_LIBRARY_SLOTS \n" >> /tmp/slots_summary.txt
+printf "Total numbers of tapes : $TOTAL_NO_TAPES_IN_LIBRARY \n" >> /tmp/slots_summary.txt
+printf  "In coming numbers of tapes : $NO_TAPES_RETURN \n" >> /tmp/slots_summary.txt
+printf  "Numbers of slots available : $SLOTS_AVAILABLE \n" >> /tmp/slots_summary.txt
+}
+
+if [ $NO_TAPES_RETURN -gt $SLOTS_AVAILABLE ]
+then
+                        summary
+                        printf "WARNING!!! WARNING!!! WARNING!!! \n" > /tmp/header_slots.txt
+                        printf "=============================== \n" >> /tmp/header_slots.txt
+                        printf "Insufficient tape slots! \n" >> /tmp/header_slots.txt
+                        printf "At least $(($NO_TAPES_RETURN  - ($SLOTS_AVAILABLE)))  tapes need to be ejected \n" >> /tmp/header_slots.txt
+                        printf "Adhoc vault is required \n" >> /tmp/header_slots.txt
+                        cat /tmp/header_slots.txt /tmp/slots_summary.txt | mailx -s "cbjnbu2019 : (TLD0)Library slots availability notification  : WARNING!!! Insufficient tapes slots " $MAIL
+                else
+                        summary
+                        printf  "SUFFICIENT NUMBERS OF SLOTS\n" > /tmp/header_slots.txt
+                        printf "========================= \n" >> /tmp/header_slots.txt
+                        printf "Worry free, tape slots is sufficient. Adhoc tape vault is not required  \n" >> /tmp/header_slots.txt
+                        cat /tmp/header_slots.txt /tmp/slots_summary.txt | mailx -s "cbjnbu2019 : (TLD0)Library slots availability notification  : Sufficient tapes slots " $MAIL
+fi
