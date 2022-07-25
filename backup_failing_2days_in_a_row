@@ -1,0 +1,38 @@
+#!/bin/sh
+#********************************************************************************
+# Owner    : CBJ Backup and Recovery Team
+# Function : List of backup job which failed for 2 days in a row
+# Filename : BackupJob_Failed_2_Days_Report.sh
+# Date     : 24 Aug 2017
+# Writer   : Izzat Bin Mhd Ilham
+#********************************************************************************
+
+PATH=$PATH:/usr/openv/netbackup/bin/admincmd:/usr/openv/netbackup/bin
+
+> /tmp/failed_2days_in_row.txt
+> /tmp/failed_2days_in_row2.txt
+> /tmp/failed_2days_in_row3.txt
+
+MASTER_SERVER=`nbemmcmd -listhosts|grep cluster  | awk '{print $2}' | awk -F "." '{print$1}' | awk -F "-" '{print$1}'`
+TODAY=`date +%m/%d/%Y`
+YESTERDAY=`date +%m/%d/%Y -d "1 day ago"`
+EREYESTERDAY=`date +%m/%d/%Y -d "2 day ago"`
+bperror -backstat -l -d $YESTERDAY 08:00:00 -e $TODAY 08:00:00 | awk '{print $9,$14,$16,$19}' | grep -vE Default-Application-Backup | awk '$4 > 1' | awk '{ $3="";print}' | sort > /tmp/1day_ago.txt
+bperror -backstat -l -d $EREYESTERDAY 08:00:00 -e $YESTERDAY 08:00:00 | awk '{print $9,$14,$16,$19}' | grep -vE Default-Application-Backup | awk '$4 > 1' | awk '{ $3="";print}' | sort > /tmp/2day_ago.txt
+printf "CLIENT_NAME             POLICY_NAME             ERROR_CODE \n" > /tmp/failed_2days_in_row.txt
+printf " \n" >> /tmp/failed_2days_in_row.txt
+comm -12 /tmp/1day_ago.txt /tmp/2day_ago.txt | sort | uniq >> /tmp/failed_2days_in_row.txt
+
+column -t /tmp/failed_2days_in_row.txt > /tmp/failed_2days_in_row2.txt
+printf " \n" >> /tmp/failed_2days_in_row2.txt
+printf "Number of Job : `sed '1,2d' /tmp/failed_2days_in_row.txt | wc -l` \n" >> /tmp/failed_2days_in_row2.txt
+
+sed -n "1p" /tmp/failed_2days_in_row2.txt > /tmp/failed_2days_in_row3.txt
+printf "=============================================================\n" >> /tmp/failed_2days_in_row3.txt
+sed '1d'  /tmp/failed_2days_in_row2.txt >> /tmp/failed_2days_in_row3.txt
+
+        [ -s /tmp/failed_2days_in_row2.txt ]
+                if [ $? = 0 ]; then
+                        mailx -s "$MASTER_SERVER : Backup Job Failed For 2 Days" cbjbackupteam@dhl.com  < /tmp/failed_2days_in_row3.txt
+                fi
+
